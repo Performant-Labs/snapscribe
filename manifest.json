@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Snapscribe",
+  "version": "1.0",
+  "description": "Capture browser screenshots page-by-page for OCR and EPUB conversion.",
+  "permissions": ["activeTab", "downloads", "scripting"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "capture_page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+U",
+        "mac": "Command+Shift+U"
+      },
+      "description": "Capture current page"
+    }
+  }
+}
