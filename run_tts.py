@@ -149,7 +149,7 @@ def append_job_log(txt_path, mp3_path, engine, language,
     actual_wps     = round(word_count / audio_dur_s, 2) if audio_dur_s else None
     elapsed_s      = round((finished_at - started_at).total_seconds(), 1)
     status         = "OK" if exit_code == 0 else "FAILED"
-    truncated      = coverage_pct is not None and coverage_pct < 90
+    truncated      = coverage_pct is not None and coverage_pct < 70
 
     def hms(s):
         if s is None: return "?"
