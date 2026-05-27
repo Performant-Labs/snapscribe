@@ -133,7 +133,7 @@ def parse_almond_output(lines):
     }
 
 
-def build_almond_command(txt_path, engine, language, output_base, output_dir):
+def build_almond_command(txt_path, engine, language, output_base, output_dir, speaking_rate=None):
     cmd = [
         ALMOND_PYTHON, ALMOND_SCRIPT,
         txt_path,
@@ -152,10 +152,10 @@ def build_almond_command(txt_path, engine, language, output_base, output_dir):
         # Google Chirp HD handles long inputs well and produces better prosody
         # with more context. Target ~300-word segments (~120s at 2.5 wps) so
         # full sentences and multi-sentence spans are sent as single requests.
-        # Speaking rate 0.9 is applied natively by the Google API — no
-        # post-processing time-stretching artifacts.
-        cmd.extend(["--min-duration", "60", "--max-duration", "120",
-                    "--speaking-rate", "0.9"])
+        cmd.extend(["--min-duration", "60", "--max-duration", "120"])
+
+    if speaking_rate is not None and speaking_rate != 1.0:
+        cmd.extend(["--speaking-rate", str(speaking_rate)])
 
     return cmd
 
@@ -243,7 +243,7 @@ def append_job_log(txt_path, mp3_path, engine, language,
 # Main chapter runner
 # ---------------------------------------------------------------------------
 
-def run_chapter(txt_path, engine, language):
+def run_chapter(txt_path, engine, language, speaking_rate=None):
     base    = os.path.splitext(os.path.basename(txt_path))[0]
     mp3_path = os.path.join(os.path.abspath(AUDIO_DIR), f"{base}.{FORMAT}")
 
@@ -253,6 +253,7 @@ def run_chapter(txt_path, engine, language):
         language,
         base,
         os.path.abspath(AUDIO_DIR),
+        speaking_rate=speaking_rate,
     )
     print(f"\n>>> {base}")
     print(" ".join(cmd))
@@ -307,6 +308,14 @@ def main():
         nargs="*",
         help="Chapter prefixes to process, e.g. ch01 ch02 (default: all)",
     )
+    parser.add_argument(
+        "--speaking-rate",
+        type=float,
+        default=None,
+        metavar="RATE",
+        help="Speaking rate for googletts (0.25–4.0; e.g. 0.9 for 10%% slower). "
+             "Default: 1.0 (normal speed). Ignored for other engines.",
+    )
     args = parser.parse_args()
 
     os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -331,7 +340,8 @@ def main():
 
     failed = []
     for path in all_chapters:
-        ok = run_chapter(path, args.engine, args.language)
+        ok = run_chapter(path, args.engine, args.language,
+                         speaking_rate=args.speaking_rate)
         if not ok:
             failed.append(os.path.basename(path))
 
