@@ -24,6 +24,7 @@ LOG_FILE      = "./output/audio/tts.log"
 ALMOND_PYTHON = os.path.expanduser("~/Projects/AlmondTTS/venv/bin/python")
 ALMOND_SCRIPT = os.path.expanduser("~/Projects/AlmondTTS/backend/almond_tts_lib.py")
 FORMAT        = "mp3"
+XTTS_MAX_DURATION = "30"
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +122,25 @@ def parse_almond_output(lines):
     }
 
 
+def build_almond_command(txt_path, engine, language, output_base, output_dir):
+    cmd = [
+        ALMOND_PYTHON, ALMOND_SCRIPT,
+        txt_path,
+        "-e", engine,
+        "-l", language,
+        "-f", FORMAT,
+        "-o", output_base,
+        "-d", output_dir,
+    ]
+
+    if engine == "xtts":
+        # XTTS has a hard 400-token input limit; shorter target segments avoid
+        # occasional overlong chunks from AlmondTTS's duration-based splitter.
+        cmd.extend(["--max-duration", XTTS_MAX_DURATION])
+
+    return cmd
+
+
 # ---------------------------------------------------------------------------
 # Validation log writer
 # ---------------------------------------------------------------------------
@@ -148,7 +168,8 @@ def append_job_log(txt_path, mp3_path, engine, language,
                      if audio_dur_s else None
     actual_wps     = round(word_count / audio_dur_s, 2) if audio_dur_s else None
     elapsed_s      = round((finished_at - started_at).total_seconds(), 1)
-    status         = "OK" if exit_code == 0 else "FAILED"
+    tts_failed     = tts["failed_count"] > 0
+    status         = "OK" if exit_code == 0 and not tts_failed else "FAILED"
     truncated      = coverage_pct is not None and coverage_pct < 70
 
     def hms(s):
@@ -196,6 +217,8 @@ def append_job_log(txt_path, mp3_path, engine, language,
           f"{tts['completed_segments']}/{tts['total_segments']} segs  "
           f"coverage {coverage_pct}%{warn_str}")
 
+    return tts
+
 
 # ---------------------------------------------------------------------------
 # Main chapter runner
@@ -205,15 +228,13 @@ def run_chapter(txt_path, engine, language):
     base    = os.path.splitext(os.path.basename(txt_path))[0]
     mp3_path = os.path.join(os.path.abspath(AUDIO_DIR), f"{base}.{FORMAT}")
 
-    cmd = [
-        ALMOND_PYTHON, ALMOND_SCRIPT,
+    cmd = build_almond_command(
         txt_path,
-        "-e", engine,
-        "-l", language,
-        "-f", FORMAT,
-        "-o", base,
-        "-d", os.path.abspath(AUDIO_DIR),
-    ]
+        engine,
+        language,
+        base,
+        os.path.abspath(AUDIO_DIR),
+    )
     print(f"\n>>> {base}")
     print(" ".join(cmd))
 
@@ -235,11 +256,14 @@ def run_chapter(txt_path, engine, language):
 
     finished_at = datetime.now(timezone.utc)
 
-    append_job_log(txt_path, mp3_path, engine, language,
-                   proc.returncode, started_at, finished_at, log_lines)
+    tts = append_job_log(txt_path, mp3_path, engine, language,
+                         proc.returncode, started_at, finished_at, log_lines)
 
-    if proc.returncode != 0:
-        print(f"ERROR: {base} failed with exit code {proc.returncode}")
+    if proc.returncode != 0 or tts["failed_count"] > 0:
+        if tts["failed_count"] > 0:
+            print(f"ERROR: {base} had {tts['failed_count']} failed segment(s)")
+        elif proc.returncode != 0:
+            print(f"ERROR: {base} failed with exit code {proc.returncode}")
         return False
     return True
 

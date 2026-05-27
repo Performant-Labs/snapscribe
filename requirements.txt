@@ -1,3 +1,4 @@
 pillow
 ocrmac
 pypandoc_binary
+anthropic

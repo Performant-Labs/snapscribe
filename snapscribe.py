@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--append", action="store_true", help="Append to existing markdown instead of overwriting")
     args = parser.parse_args()
 
+    os.makedirs(CAPTURES_DIR, exist_ok=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     if args.page is not None:
