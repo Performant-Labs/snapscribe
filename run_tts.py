@@ -148,6 +148,11 @@ def build_almond_command(txt_path, engine, language, output_base, output_dir):
         # XTTS has a hard 400-token input limit; shorter target segments avoid
         # occasional overlong chunks from AlmondTTS's duration-based splitter.
         cmd.extend(["--max-duration", XTTS_MAX_DURATION])
+    elif engine == "googletts":
+        # Google Chirp HD handles long inputs well and produces better prosody
+        # with more context. Target ~300-word segments (~120s at 2.5 wps) so
+        # full sentences and multi-sentence spans are sent as single requests.
+        cmd.extend(["--min-duration", "60", "--max-duration", "120"])
 
     return cmd
 
