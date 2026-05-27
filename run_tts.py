@@ -152,7 +152,10 @@ def build_almond_command(txt_path, engine, language, output_base, output_dir):
         # Google Chirp HD handles long inputs well and produces better prosody
         # with more context. Target ~300-word segments (~120s at 2.5 wps) so
         # full sentences and multi-sentence spans are sent as single requests.
-        cmd.extend(["--min-duration", "60", "--max-duration", "120"])
+        # Speaking rate 0.9 is applied natively by the Google API — no
+        # post-processing time-stretching artifacts.
+        cmd.extend(["--min-duration", "60", "--max-duration", "120",
+                    "--speaking-rate", "0.9"])
 
     return cmd
 
