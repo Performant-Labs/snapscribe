@@ -286,7 +286,7 @@ def main():
     parser.add_argument(
         "-e", "--engine",
         default="xtts",
-        choices=["xtts", "kokoro", "piper", "voxtral"],
+        choices=["xtts", "kokoro", "piper", "voxtral", "googletts"],
         help="TTS engine to use (default: xtts)",
     )
     parser.add_argument(
