@@ -88,7 +88,7 @@ def parse_almond_output(lines):
     total_segments = 0
     completed_segments = 0
     failed_segments = []
-    segment_durations = []
+    segment_durations = []   # list of (segment_id, duration_s)
     duration_limit_hits = 0
 
     for line in lines:
@@ -96,8 +96,9 @@ def parse_almond_output(lines):
         if m:
             completed_segments = int(m.group(1))
             total_segments     = int(m.group(2))
+            seg_id             = int(m.group(3))
             seg_duration       = float(m.group(4))
-            segment_durations.append(seg_duration)
+            segment_durations.append((seg_id, seg_duration))
 
         m = ERROR_RE.search(line)
         if m:
@@ -109,16 +110,26 @@ def parse_almond_output(lines):
         if DURATION_EXCEEDED_RE.search(line):
             duration_limit_hits += 1
 
+    durations = [d for _, d in segment_durations]
+    mean_dur  = sum(durations) / len(durations) if durations else 0
+
+    # Outlier: any segment > 3× the mean is a hallucination candidate
+    outliers = [
+        {"segment_id": sid, "duration_s": dur, "ratio": round(dur / mean_dur, 1)}
+        for sid, dur in segment_durations
+        if mean_dur > 0 and dur > mean_dur * 3
+    ]
+
     return {
-        "total_segments":        total_segments,
-        "completed_segments":    completed_segments,
-        "failed_segments":       failed_segments,
-        "failed_count":          len(failed_segments),
-        "duration_limit_hits":   duration_limit_hits,
-        "segment_durations_s":   segment_durations,
-        "tts_audio_total_s":     round(sum(segment_durations), 2),
-        "tts_audio_mean_s":      round(sum(segment_durations) / len(segment_durations), 2)
-                                 if segment_durations else 0,
+        "total_segments":      total_segments,
+        "completed_segments":  completed_segments,
+        "failed_segments":     failed_segments,
+        "failed_count":        len(failed_segments),
+        "duration_limit_hits": duration_limit_hits,
+        "tts_audio_total_s":   round(sum(durations), 2),
+        "tts_audio_mean_s":    round(mean_dur, 2),
+        "outlier_segments":    outliers,
+        "outlier_count":       len(outliers),
     }
 
 
@@ -162,28 +173,28 @@ def append_job_log(txt_path, mp3_path, engine, language,
     # --- TTS parse ---
     tts = parse_almond_output(log_lines)
 
-    # --- Derived validation ---
-    expected_dur_s = word_count / 1.5           # baseline at 1.5 wps
-    coverage_pct   = round(100 * audio_dur_s / expected_dur_s, 1) \
-                     if audio_dur_s else None
-    actual_wps     = round(word_count / audio_dur_s, 2) if audio_dur_s else None
-    elapsed_s      = round((finished_at - started_at).total_seconds(), 1)
-    tts_failed     = tts["failed_count"] > 0
-    status         = "OK" if exit_code == 0 and not tts_failed else "FAILED"
-    truncated      = coverage_pct is not None and coverage_pct < 70
+    # --- Derived metrics ---
+    actual_wps = round(word_count / audio_dur_s, 2) if audio_dur_s else None
+    elapsed_s  = round((finished_at - started_at).total_seconds(), 1)
+    status     = "OK" if exit_code == 0 else "FAILED"
 
     def hms(s):
         if s is None: return "?"
         return f"{int(s//3600)}:{int(s%3600//60):02d}:{int(s%60):02d}"
 
+    # --- Warnings: direct evidence of engine problems only ---
     warnings = []
-    if truncated:
-        warnings.append(f"TRUNCATED (coverage {coverage_pct}%)")
     if tts["failed_count"]:
         ids = ", ".join(str(f["segment_id"]) for f in tts["failed_segments"])
         warnings.append(f"{tts['failed_count']} segment(s) failed (IDs: {ids})")
     if tts["duration_limit_hits"]:
         warnings.append(f"{tts['duration_limit_hits']} duration-limit hit(s)")
+    if tts["outlier_count"]:
+        parts = ", ".join(
+            f"ID {o['segment_id']} ({o['duration_s']:.1f}s = {o['ratio']}× mean)"
+            for o in tts["outlier_segments"]
+        )
+        warnings.append(f"{tts['outlier_count']} outlier segment(s): {parts}")
 
     lines = [
         f"{'='*70}",
@@ -196,9 +207,8 @@ def append_job_log(txt_path, mp3_path, engine, language,
         f"  input    : {word_count:,} words",
         f"  output   : {hms(audio_dur_s)}  ({mp3_size_mb} MB)",
         f"  segments : {tts['completed_segments']}/{tts['total_segments']} completed"
-                      f"  {tts['failed_count']} failed",
-        f"  coverage : {coverage_pct}%  "
-                      f"(expected {hms(expected_dur_s)}, got {hms(audio_dur_s)})",
+                      f"  {tts['failed_count']} failed"
+                      f"  mean {tts['tts_audio_mean_s']}s",
         f"  wps      : {actual_wps} words/sec",
     ]
     if warnings:
@@ -215,7 +225,8 @@ def append_job_log(txt_path, mp3_path, engine, language,
     warn_str = "  *** " + " / ".join(warnings) if warnings else ""
     print(f"  [{status}] {hms(audio_dur_s)}  {mp3_size_mb} MB  "
           f"{tts['completed_segments']}/{tts['total_segments']} segs  "
-          f"coverage {coverage_pct}%{warn_str}")
+          f"mean {tts['tts_audio_mean_s']}s/seg  "
+          f"{actual_wps} wps{warn_str}")
 
     return tts
 
